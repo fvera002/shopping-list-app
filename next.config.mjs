@@ -1,14 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  output: 'export',
+  trailingSlash: true,
   images: {
-    unoptimized: true,
+    unoptimized: true
   },
+  // Add this if your repo name is not your username
+  basePath: '/shopping-list-app',
+  assetPrefix: '/shopping-list-app/',
 }
 
 export default nextConfig
