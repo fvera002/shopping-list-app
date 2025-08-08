@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Trash2, Plus, ShoppingCart, History } from "lucide-react"
 
 import { db } from "../lib/firebase"
-import { doc, onSnapshot, setDoc } from "firebase/firestore"
+import { doc, onSnapshot, setDoc, Timestamp } from "firebase/firestore"
 
 // Define a type for your shopping list items
 type ShoppingItem = {
@@ -36,8 +37,15 @@ export default function Home() {
     const unsubscribe = onSnapshot(appDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data()
+
         setList((data.currentList as ShoppingItem[]) || [])
-        setHistory((data.history as HistoryItem[]) || [])
+
+        const fetchedHistory = (data.history as any[] || []).map((hItem) => ({
+          ...hItem,
+          savedAt: hItem.savedAt instanceof Timestamp ? hItem.savedAt.toDate() : hItem.savedAt
+        }))
+        setHistory(fetchedHistory)
+
       } else {
         console.log("No app data document found. Creating a new one.")
         setList([])
@@ -100,7 +108,6 @@ export default function Home() {
     }
   }
 
-  // Effect to automatically save to history when all items are checked
   useEffect(() => {
     if (list.length > 0 && list.every(item => item.completed)) {
       saveListToHistory();
@@ -113,20 +120,20 @@ export default function Home() {
         <CardHeader>
           <CardTitle>Shopping List</CardTitle>
           <CardDescription>
-            This list is shared by everyone using the app!
+            Add items to your shopping list and mark them as completed
           </CardDescription>
           <div className="flex space-x-2 mt-4">
             <Button
               onClick={() => setActiveTab("list")}
               variant={activeTab === "list" ? "default" : "outline"}
             >
-              Current List
+              <ShoppingCart className="mr-2 h-4 w-4" /> Current List
             </Button>
             <Button
               onClick={() => setActiveTab("history")}
               variant={activeTab === "history" ? "default" : "outline"}
             >
-              History
+              <History className="mr-2 h-4 w-4" /> History
             </Button>
           </div>
         </CardHeader>
@@ -143,7 +150,9 @@ export default function Home() {
                     if (e.key === "Enter") addToList()
                   }}
                 />
-                <Button onClick={addToList}>Add</Button>
+                <Button onClick={addToList}>
+                  <Plus className="mr-2 h-4 w-4" /> Add
+                </Button>
               </div>
               <div className="space-y-2">
                 {list.map((item, index) => (
@@ -160,7 +169,7 @@ export default function Home() {
                       {item.text}
                     </label>
                     <Button variant="ghost" size="sm" onClick={() => deleteItem(index)}>
-                      &times;
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 ))}
