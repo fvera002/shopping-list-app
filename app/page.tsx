@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 
-import { db } from "../lib/firebase" // Corrected import path
+import { db } from "../lib/firebase"
 import { doc, onSnapshot, setDoc } from "firebase/firestore"
 
 // Define a type for your shopping list items
@@ -15,23 +15,33 @@ type ShoppingItem = {
   completed: boolean;
 }
 
-const SHOPPING_LIST_DOC_ID = "currentShoppingList"
+// Define a type for a historical list
+type HistoryItem = {
+  id: string;
+  items: ShoppingItem[];
+  savedAt: Date;
+}
+
+const APP_DATA_DOC_ID = "appData"
 
 export default function Home() {
-  // Correctly type the useState hook
   const [list, setList] = useState<ShoppingItem[]>([])
   const [item, setItem] = useState("")
+  const [history, setHistory] = useState<HistoryItem[]>([])
+  const [activeTab, setActiveTab] = useState("list")
 
   useEffect(() => {
-    const listDocRef = doc(db, "shopping-lists", SHOPPING_LIST_DOC_ID)
+    const appDocRef = doc(db, "app-data", APP_DATA_DOC_ID)
 
-    const unsubscribe = onSnapshot(listDocRef, (docSnap) => {
+    const unsubscribe = onSnapshot(appDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data()
-        setList(data.items as ShoppingItem[] || [])
+        setList((data.currentList as ShoppingItem[]) || [])
+        setHistory((data.history as HistoryItem[]) || [])
       } else {
-        console.log("No shopping list document found. A new one will be created on save.")
+        console.log("No app data document found. Creating a new one.")
         setList([])
+        setHistory([])
       }
     }, (error) => {
       console.error("Error fetching real-time data: ", error)
@@ -40,13 +50,13 @@ export default function Home() {
     return () => unsubscribe()
   }, [])
 
-  const saveList = async () => {
-    const listDocRef = doc(db, "shopping-lists", SHOPPING_LIST_DOC_ID)
+  const saveList = async (currentList: ShoppingItem[], history: HistoryItem[]) => {
+    const appDocRef = doc(db, "app-data", APP_DATA_DOC_ID)
     try {
-      await setDoc(listDocRef, { items: list })
-      console.log("Shopping list saved to Firestore!")
+      await setDoc(appDocRef, { currentList, history }, { merge: false })
+      console.log("App data successfully saved to Firestore!")
     } catch (e) {
-      console.error("Error saving shopping list: ", e)
+      console.error("Error saving app data: ", e)
     }
   }
 
@@ -55,23 +65,45 @@ export default function Home() {
       const newList = [...list, { text: item, completed: false }]
       setList(newList)
       setItem("")
+      saveList(newList, history)
     }
   }
 
-  const toggleComplete = (index: number) => { // Added type for index
+  const toggleComplete = (index: number) => {
     const newList = [...list]
     newList[index].completed = !newList[index].completed
     setList(newList)
+    saveList(newList, history)
   }
 
-  const deleteItem = (index: number) => { // Added type for index
+  const deleteItem = (index: number) => {
     const newList = list.filter((_, i) => i !== index)
     setList(newList)
+    saveList(newList, history)
   }
 
+  const saveListToHistory = () => {
+    if (list.length > 0) {
+      const allCompleted = list.every(item => item.completed);
+      if(allCompleted) {
+        const newHistoryItem: HistoryItem = {
+          id: Date.now().toString(),
+          items: list,
+          savedAt: new Date()
+        };
+        const newHistory = [...history, newHistoryItem];
+        setHistory(newHistory);
+        setList([]);
+        saveList([], newHistory);
+        setActiveTab("history");
+      }
+    }
+  }
+
+  // Effect to automatically save to history when all items are checked
   useEffect(() => {
-    if (list.length > 0 || item !== "") {
-      saveList()
+    if (list.length > 0 && list.every(item => item.completed)) {
+      saveListToHistory();
     }
   }, [list])
 
@@ -83,46 +115,78 @@ export default function Home() {
           <CardDescription>
             This list is shared by everyone using the app!
           </CardDescription>
+          <div className="flex space-x-2 mt-4">
+            <Button
+              onClick={() => setActiveTab("list")}
+              variant={activeTab === "list" ? "default" : "outline"}
+            >
+              Current List
+            </Button>
+            <Button
+              onClick={() => setActiveTab("history")}
+              variant={activeTab === "history" ? "default" : "outline"}
+            >
+              History
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="flex space-x-2 mb-4">
-            <Input
-              type="text"
-              placeholder="Add an item"
-              value={item}
-              onChange={(e) => setItem(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") addToList()
-              }}
-            />
-            <Button onClick={addToList}>Add</Button>
-          </div>
-          <div className="space-y-2">
-            {list.map((item, index) => (
-              <div key={index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-md">
-                <Checkbox
-                  checked={item.completed}
-                  onCheckedChange={() => toggleComplete(index)}
-                  id={`item-${index}`}
+          {activeTab === "list" ? (
+            <>
+              <div className="flex space-x-2 mb-4">
+                <Input
+                  type="text"
+                  placeholder="Add an item"
+                  value={item}
+                  onChange={(e) => setItem(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addToList()
+                  }}
                 />
-                <label
-                  htmlFor={`item-${index}`}
-                  className={`flex-1 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${item.completed ? "line-through text-gray-500" : ""}`}
-                >
-                  {item.text}
-                </label>
-                <Button variant="ghost" size="sm" onClick={() => deleteItem(index)}>
-                  &times;
-                </Button>
+                <Button onClick={addToList}>Add</Button>
               </div>
-            ))}
-          </div>
+              <div className="space-y-2">
+                {list.map((item, index) => (
+                  <div key={index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-md">
+                    <Checkbox
+                      checked={item.completed}
+                      onCheckedChange={() => toggleComplete(index)}
+                      id={`item-${index}`}
+                    />
+                    <label
+                      htmlFor={`item-${index}`}
+                      className={`flex-1 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${item.completed ? "line-through text-gray-500" : ""}`}
+                    >
+                      {item.text}
+                    </label>
+                    <Button variant="ghost" size="sm" onClick={() => deleteItem(index)}>
+                      &times;
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              {history.length > 0 ? (
+                history.map((hItem) => (
+                  <Card key={hItem.id} className="p-4 bg-gray-50">
+                    <p className="text-sm font-semibold mb-2">Saved on: {hItem.savedAt.toLocaleDateString()}</p>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      {hItem.items.map((item, index) => (
+                        <li key={index} className={item.completed ? "line-through text-gray-500" : ""}>
+                          {item.text}
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 text-center">Complete your first shopping list to see it here!</p>
+              )}
+            </div>
+          )}
         </CardContent>
-        <CardFooter>
-          <p className="text-sm text-gray-500">
-            Click an item to toggle its completion.
-          </p>
-        </CardFooter>
       </Card>
     </div>
   )
